@@ -40,6 +40,15 @@ ffi.cdef[[
     typedef void*(__thiscall* get_client_entity_t)(void*, int);
     typedef uintptr_t (__thiscall* GetClientEntity_4242425_t)(void*, int);
 
+
+    typedef struct
+    {
+        float x;
+        float y;
+        float z;
+    } Vector_t;
+
+    
     typedef struct
     {
         char    pad0[0x60]; // 0x00
