@@ -34,11 +34,14 @@ m_flPoseParameter[17]   --> player pose animation (duck)
 
 
 local render_world_to_screen, rage_exploit, ui_get_binds, ui_get_alpha, entity_get_players, entity_get, entity_get_entities, entity_get_game_rules, common_set_clan_tag, common_is_button_down, common_get_username, common_get_date, ffi_cast, ffi_typeof, render_gradient, render_text, render_texture, render_rect_outline, render_rect, entity_get_local_player, ui_create, ui_get_style, ui_get_icon, math_floor, math_abs, math_max, math_ceil, math_min, math_random, utils_trace_bullet, render_screen_size, render_load_font, render_load_image_from_file, render_measure_text, render_poly, render_poly_blur, common_add_notify, common_add_event, utils_console_exec, utils_execute_after, utils_create_interface, utils_trace_line, ui_find, entity_get_threat, string_format = render.world_to_screen, rage.exploit, ui.get_binds, ui.get_alpha, entity.get_players, entity.get, entity.get_entities, entity.get_game_rules, common.set_clan_tag, common.is_button_down, common.get_username, common.get_date, ffi.cast, ffi.typeof, render.gradient, render.text, render.texture, render.rect_outline, render.rect, entity.get_local_player, ui.create, ui.get_style, ui.get_icon, math.floor, math.abs, math.max, math.ceil, math.min, math.random, utils.trace_bullet, render.screen_size, render.load_font, render.load_image_from_file, render.measure_text, render.poly, render.poly_blur, common.add_notify, common.add_event, utils.console_exec, utils.execute_after, utils.create_interface, utils.trace_line, ui.find, entity.get_threat, string.format
-local vmt_hook = require("neverlose/vmt_hook")
+
 
 ffi.cdef[[
     typedef void*(__thiscall* get_client_entity_t)(void*, int);
     typedef uintptr_t (__thiscall* GetClientEntity_4242425_t)(void*, int);
+    int VirtualFree(void* lpAddress, unsigned long dwSize, unsigned long dwFreeType);
+    void* VirtualAlloc(void* lpAddress, unsigned long dwSize, unsigned long  flAllocationType, unsigned long flProtect);
+    int VirtualProtect(void* lpAddress, unsigned long dwSize, unsigned long flNewProtect, unsigned long* lpflOldProtect);
 
 
     typedef struct
@@ -103,6 +106,72 @@ ffi.cdef[[
     } CCSGOPlayerAnimationState_534535_t;
 ]]
 
+
+-- https://en.neverlose.cc/market/item?id=10Uozi
+
+local vmthook = {}
+vmthook.list = {}
+
+vmthook.copy = function(void, source, length)
+    return ffi.copy(ffi.cast("void*", void), ffi.cast("const void*", source), length)
+end
+
+vmthook.virtual_protect = function(point, size, new_protect, old_protect)
+    return ffi.C.VirtualProtect(ffi.cast("void*", point), size, new_protect, old_protect)
+end
+
+vmthook.virtual_alloc = function(point, size, allocation_type, protect)
+    local alloc = ffi.C.VirtualAlloc(point, size, allocation_type, protect)
+    return ffi.cast("intptr_t", alloc)
+end
+
+vmthook.new = function(address)
+    local cache = {
+        data = {},
+        org_func = {},
+
+        old_protection = ffi.new("unsigned long[1]"),
+        virtual_table = ffi.cast("intptr_t**", address)[0]
+    }
+
+    cache.data.hook = function(cast, __function, method)
+        cache.org_func[method] = cache.virtual_table[method]
+        vmthook.virtual_protect(cache.virtual_table + method, 4, 0x4, cache.old_protection)
+
+        cache.virtual_table[method] = ffi.cast("intptr_t", ffi.cast(cast, __function))
+        vmthook.virtual_protect(cache.virtual_table + method, 4, cache.old_protection[0], cache.old_protection)
+
+        return ffi.cast(cast, cache.org_func[method])
+    end
+
+    cache.data.unhook = function(method)
+        vmthook.virtual_protect(cache.virtual_table + method, 4, 0x4, cache.old_protection)
+
+        local alloc_addr = vmthook.virtual_alloc(nil, 5, 0x1000, 0x40)
+        local trampoline_bytes = ffi.new("uint8_t[?]", 5, 0x90)
+
+        trampoline_bytes[0] = 0xE9
+        ffi.cast("int32_t*", trampoline_bytes + 1)[0] = cache.org_func[method] - tonumber(alloc_addr) - 5
+
+        vmthook.copy(alloc_addr, trampoline_bytes, 5)
+        cache.virtual_table[method] = ffi.cast("intptr_t", alloc_addr)
+
+        vmthook.virtual_protect(cache.virtual_table + method, 4, cache.old_protection[0], cache.old_protection)
+        cache.org_func[method] = nil
+    end
+
+    cache.data.unhook_all = function()
+        for method, _ in pairs(cache.org_func) do
+            cache.data.unhook(method)
+        end
+    end
+
+    table.insert(vmthook.list, cache.data.unhook_all)
+    return cache.data
+end
+
+
+
 local function this_call(call_function, parameters)
     return function(...)
         return call_function(parameters, ...)
@@ -127,25 +196,25 @@ inside_updateCSA = function(thisptr, edx)
     if anim_breakers:get(1) then
         if ffi.cast("CCSGOPlayerAnimationState_534535_t**", ffi.cast("uintptr_t", thisptr) + 0x9960)[0].bHitGroundAnimation then
             if not is_jumping then
-                ffi.cast("float*", ffi.cast("uintptr_t", thisptr) + 10104)[12] = 0.5
+                entity_get_local_player().m_flPoseParameter[12] = 0.5
             end
         end
     end
 
-    ffi.cast("float*", ffi.cast("uintptr_t", thisptr) + 10104)[6] = anim_breakers:get(2) and 1 or 0
+    entity_get_local_player().m_flPoseParameter[6] = anim_breakers:get(2) and 1 or 0
 
     if anim_breakers:get(3) then
         legmovement:override("Sliding")
-        ffi.cast("float*", ffi.cast("uintptr_t", thisptr) + 10104)[0] = 0
+        entity_get_local_player().m_flPoseParameter[0] = 0
     end
 
     if anim_breakers:get(4) and slow_walk:get() then
         legmovement:override("Walking")
-        ffi.cast("float*", ffi.cast("uintptr_t", thisptr) + 10104)[9] = 0
+        entity_get_local_player().m_flPoseParameter[9] = 0
     end
 
     if anim_breakers:get(5) then
-        ffi.cast("float*", ffi.cast("uintptr_t", thisptr) + 10104)[8] = 0
+        entity_get_local_player().m_flPoseParameter[8] = 0
     end
 
 end
@@ -163,13 +232,19 @@ update_hook = function()
         return
     end
 
-    local new_point = vmt_hook.new(self_address)
+    local new_point = vmthook.new(self_address)
     hooked_function = new_point.hook("void(__fastcall*)(void*, void*)", inside_updateCSA, 224)
 end
 
 events.createmove_run:set(function(cmd)
     is_jumping = bit.band(cmd.buttons, 2) ~= 0
     update_hook()
+end)
+
+events.shutdown:set(function()
+    for _, reset_function in ipairs(vmthook.list) do
+        reset_function()
+    end
 end)
 
 ui.sidebar("AnimBreaker",'wheelchair')
