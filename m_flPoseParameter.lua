@@ -16,7 +16,7 @@ m_flPoseParameter[7]    --> leg animation while running
 m_flPoseParameter[8]    --> animation while ducking & moving
 m_flPoseParameter[9]    --> animation while slow walking
 m_flPoseParameter[10]   --> animation while running
-m_flPoseParameter[11]   --> player pose animation (yaw)
+m_flPoseParameter[11]   --> player pose animation (body yaw)
 m_flPoseParameter[12]   --> player pose animation (pitch) (up ~ down)
 m_flPoseParameter[13]   --> player pose animation (pitch) (zero ~ down)
 m_flPoseParameter[14]   --> arm animation
