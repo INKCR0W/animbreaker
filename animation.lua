@@ -23,6 +23,19 @@ m_flPoseParameter[14]   --> arm animation
 m_flPoseParameter[15]   --> arm animation
 m_flPoseParameter[16]   --> player pose animation (duck)
 m_flPoseParameter[17]   --> player pose animation (duck)
+
+
+thisptr + 10640
+↓
+table CAnimationLayer
+    - unknow (I'm 2 lazy ✌︎(ツ)ɔ)
+
+CAnimationLayer[0]
+↓
+table
+    - 013 (table)
+
+https://docs.primordial.dev/api_enumerations/e_animlayers
 ]]
 
 
@@ -104,6 +117,20 @@ ffi.cdef[[
         float        flMaxPitch; // 0x33C
         int            iAnimsetVersion; // 0x340
     } CCSGOPlayerAnimationState_534535_t;
+
+    typedef struct
+    {
+        char  pad_0000[20];
+        int m_nOrder; //0x0014
+        int m_nSequence; //0x0018
+        float m_flPrevCycle; //0x001C
+        float m_flWeight; //0x0020
+        float m_flWeightDeltaRate; //0x0024
+        float m_flPlaybackRate; //0x0028
+        float m_flCycle; //0x002C
+        void *m_pOwner; //0x0030
+        char  pad_0038[4]; //0x0034
+    } CAnimationLayer;
 ]]
 
 
@@ -183,7 +210,7 @@ local get_entity_address = this_call(ffi.cast("get_client_entity_t", entity_list
 
 
 local group = ui.create("Main")
-local anim_breakers = group:selectable("Anim. Breakers", {"0 Pitch on land", "Static leg in air", "Break leg", "Static on slow walk", "Static on duck"}, 0)
+local anim_breakers = group:selectable("Anim. Breakers", {"0 Pitch on land", "Static leg in air", "Break leg", "Static on slow walk", "Static on duck", "Moon Walk In Air", "Move Lean"}, 0)
 local legmovement = ui.find("Aimbot", "Anti Aim", "Misc", "Leg Movement")
 local slow_walk = ui.find("Aimbot", "Anti Aim", "Misc", "Slow Walk");
 local hooked_function, is_jumping = nil, false
@@ -192,29 +219,43 @@ inside_updateCSA = function(thisptr, edx)
     hooked_function(thisptr, edx)
     if entity_get_local_player() == nil or ffi.cast('uintptr_t**', thisptr) == nil then return end
 
-    legmovement:override(nil)
-    if anim_breakers:get(1) then
-        if ffi.cast("CCSGOPlayerAnimationState_534535_t**", ffi.cast("uintptr_t", thisptr) + 0x9960)[0].bHitGroundAnimation then
-            if not is_jumping then
-                entity_get_local_player().m_flPoseParameter[12] = 0.5
+    -- local address
+    local entity_localplayer_address = get_entity_address(entity.get_local_player():get_index())
+
+    if ffi.cast('uintptr_t', thisptr) == entity_localplayer_address then
+        legmovement:override(nil)
+        if anim_breakers:get(1) then --0 Pitch on land
+            if ffi.cast("CCSGOPlayerAnimationState_534535_t**", ffi.cast("uintptr_t", thisptr) + 0x9960)[0].bHitGroundAnimation then
+                if not is_jumping then
+                    entity_get_local_player().m_flPoseParameter[12] = 0.5
+                end
             end
         end
-    end
 
-    entity_get_local_player().m_flPoseParameter[6] = anim_breakers:get(2) and 1 or 0
+        entity_get_local_player().m_flPoseParameter[6] = anim_breakers:get(2) and 1 or 0 --Static leg in air
 
-    if anim_breakers:get(3) then
-        legmovement:override("Sliding")
-        entity_get_local_player().m_flPoseParameter[0] = 0
-    end
+        if anim_breakers:get(3) then --Break leg
+            legmovement:override("Sliding")
+            entity_get_local_player().m_flPoseParameter[0] = 0
+        end
 
-    if anim_breakers:get(4) and slow_walk:get() then
-        legmovement:override("Walking")
-        entity_get_local_player().m_flPoseParameter[9] = 0
-    end
+        if anim_breakers:get(4) and slow_walk:get() then --Static on slow walk
+            legmovement:override("Walking")
+            entity_get_local_player().m_flPoseParameter[9] = 0
+        end
 
-    if anim_breakers:get(5) then
-        entity_get_local_player().m_flPoseParameter[8] = 0
+        if anim_breakers:get(5) then --Static on duck
+            entity_get_local_player().m_flPoseParameter[8] = 0
+        end
+
+        if anim_breakers:get(6) then --Moon Walk In Air
+            ffi.cast('CAnimationLayer**', ffi.cast('uintptr_t', entity_localplayer_address) + 10640)[0][6].m_flWeight = 1
+        end
+
+        if anim_breakers:get(7) then --Move Lean
+            -- 0~1 0=non 1=largest(maybe? you can try 1.1 1.2 ....)
+            ffi.cast('CAnimationLayer**', ffi.cast('uintptr_t', entity_localplayer_address) + 10640)[0][12].m_flWeight = 1
+        end
     end
 
 end
@@ -239,6 +280,12 @@ end
 events.createmove_run:set(function(cmd)
     is_jumping = bit.band(cmd.buttons, 2) ~= 0
     update_hook()
+end)
+
+events.createmove:set(function (cmd)
+    if anim_breakers:get(7) then
+        cmd.animate_move_lean = true
+    end
 end)
 
 events.shutdown:set(function()
